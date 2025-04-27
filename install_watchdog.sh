@@ -75,9 +75,13 @@ restart_process() {
   send_telegram_alert
 }
 
-if check_for_error; then
-  restart_process
-fi
+# Infinite loop with 10s interval
+while true; do
+  if check_for_error; then
+    restart_process
+  fi
+  sleep 10
+done
 EOF
 
 chmod +x "$WATCHDOG_SCRIPT"
