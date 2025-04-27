@@ -1,22 +1,22 @@
 #!/bin/bash
 
-echo "🛠️ Установка watchdog для RL Swarm"
+echo "🛠️ Installing watchdog for RL Swarm..."
 
 INSTALL_DIR="$HOME/rl-swarm"
 WATCHDOG_SCRIPT="$INSTALL_DIR/watchdog.sh"
 SERVICE_FILE="/etc/systemd/system/gensynnode.service"
 
-read -p "❓ Хотите включить уведомления в Telegram? (y/N): " ENABLE_TELEGRAM
+read -p "❓ Do you want to enable Telegram notifications? (y/N): " ENABLE_TELEGRAM
 
 if [[ "$ENABLE_TELEGRAM" =~ ^[Yy]$ ]]; then
-  read -p "🔑 Введите Telegram BOT TOKEN: " BOT_TOKEN
-  read -p "👤 Введите ваш Telegram CHAT ID: " CHAT_ID
+  read -p "🔑 Enter your Telegram BOT TOKEN: " BOT_TOKEN
+  read -p "👤 Enter your Telegram CHAT ID: " CHAT_ID
 else
   BOT_TOKEN=""
   CHAT_ID=""
 fi
 
-echo "📄 Создание watchdog.sh..."
+echo "📄 Creating watchdog.sh..."
 
 cat > "$WATCHDOG_SCRIPT" <<EOF
 #!/bin/bash
@@ -37,8 +37,8 @@ cat >> "$WATCHDOG_SCRIPT" <<EOF
   BOT_TOKEN="$BOT_TOKEN"
   CHAT_ID="$CHAT_ID"
   MESSAGE=\$(cat <<MSG
-⚠️ *RL Swarm был перезапущен из-за ошибки (\`Resource temporarily unavailable\`)*
-🌐 Сервер IPv4: \`\$SERVER_IP\`
+⚠️ *RL Swarm was restarted due to an error (\`Resource temporarily unavailable\`)*
+🌐 Server IPv4: \`\$SERVER_IP\`
 🕒 \$(date '+%Y-%m-%d %H:%M:%S')
 MSG
 )
@@ -50,7 +50,7 @@ MSG
 EOF
 else
 cat >> "$WATCHDOG_SCRIPT" <<EOF
-  echo "[INFO] Уведомление в Telegram отключено"
+  echo "[INFO] Telegram notifications are disabled"
 EOF
 fi
 
@@ -71,7 +71,7 @@ restart_process() {
     sleep 1
   done
 
-  echo "[INFO] Re-entered and pressed N"
+  echo "[INFO] Entered and pressed N"
   send_telegram_alert
 }
 
@@ -82,9 +82,9 @@ EOF
 
 chmod +x "$WATCHDOG_SCRIPT"
 
-echo "✅ watchdog.sh создан по пути $WATCHDOG_SCRIPT"
+echo "✅ watchdog.sh created at $WATCHDOG_SCRIPT"
 
-echo "📄 Создание systemd сервиса..."
+echo "📄 Creating systemd service..."
 
 sudo tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
@@ -103,10 +103,10 @@ RestartSec=30
 WantedBy=multi-user.target
 EOF
 
-echo "🔁 Перезапуск systemd..."
+echo "🔁 Reloading and starting systemd service..."
 sudo systemctl daemon-reload
 sudo systemctl enable gensynnode.service
 sudo systemctl restart gensynnode.service
 
-echo "✅ Установка завершена!"
-echo "👉 Статус: sudo systemctl status gensynnode.service"
+echo "✅ Installation complete!"
+echo "👉 To check status: sudo systemctl status gensynnode.service"
