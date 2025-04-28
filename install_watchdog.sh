@@ -18,14 +18,14 @@ fi
 
 echo "📄 Creating watchdog.sh..."
 
-cat > "$WATCHDOG_SCRIPT" <<EOF
+cat > "$WATCHDOG_SCRIPT" <<'EOF'
 #!/bin/bash
 
-LOG_FILE="\$HOME/rl-swarm/gensynnode.log"
-PROJECT_DIR="\$HOME/rl-swarm"
+LOG_FILE="$HOME/rl-swarm/gensynnode.log"
+PROJECT_DIR="$HOME/rl-swarm"
 
 check_for_error() {
-  grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \\(most recent call last\\)|Exception|P2PDaemonError" "\$LOG_FILE"
+  grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \(most recent call last\)|Exception|P2PDaemonError" "$LOG_FILE"
 }
 
 check_process() {
@@ -33,44 +33,39 @@ check_process() {
 }
 
 send_telegram_alert() {
-  SERVER_IP=\$(curl -4 -s ifconfig.me)
+  SERVER_IP=$(curl -4 -s ifconfig.me)
 EOF
 
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
 cat >> "$WATCHDOG_SCRIPT" <<EOF
   BOT_TOKEN="$BOT_TOKEN"
   CHAT_ID="$CHAT_ID"
-  MESSAGE=\$(cat <<MSG
-⚠️ *RL Swarm был перезапущен*
-🌐 IP: \`\$SERVER_IP\`
-🕒 \$(date '+%Y-%m-%d %H:%M:%S')
-MSG
-)
+  MESSAGE=\$(echo -e "⚠️ *RL Swarm был перезапущен*\n🌐 IP: \\\$SERVER_IP\n🕒 \\\$(date '+%Y-%m-%d %H:%M:%S')")
   curl -s -X POST "https://api.telegram.org/bot\$BOT_TOKEN/sendMessage" \\
     -d chat_id="\$CHAT_ID" \\
     -d text="\$MESSAGE" \\
     -d parse_mode="Markdown"
 EOF
 else
-cat >> "$WATCHDOG_SCRIPT" <<EOF
+cat >> "$WATCHDOG_SCRIPT" <<'EOF'
   echo "[INFO] Telegram notifications are disabled"
 EOF
 fi
 
-cat >> "$WATCHDOG_SCRIPT" <<EOF
+cat >> "$WATCHDOG_SCRIPT" <<'EOF'
 }
 
 restart_process() {
   echo "[INFO] Restarting gensynnode..."
 
   screen -XS gensynnode quit
-  cd "\$PROJECT_DIR" || exit
+  cd "$PROJECT_DIR" || exit
   source .venv/bin/activate
 
-  screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee \$LOG_FILE"
+  screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
   sleep 5
 
-  while ! screen -S gensynnode -X stuff "N\$(echo -ne '\\r')"; do
+  while ! screen -S gensynnode -X stuff "N$(echo -ne '\r')"; do
     sleep 1
   done
 
