@@ -33,7 +33,7 @@ check_process() {
 }
 
 send_telegram_alert() {
-  SERVER_IP=$(curl -4 -s ifconfig.me)
+  SERVER_IP=$(curl -s https://api.ipify.org)
 EOF
 
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
@@ -114,7 +114,7 @@ echo "👉 To check status: sudo systemctl status gensynnode.service"
 
 # ✅ Send Telegram notification about successful install
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
-  SERVER_IP=$(curl -4 -s ifconfig.me)
+  SERVER_IP=$(curl -s https://api.ipify.org)
   MESSAGE="✅ Скрипт RL Swarm установлен\n🌐 IP: \`$SERVER_IP\`\n🕒 $(date '+%Y-%m-%d %H:%M:%S')"
   curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
     -d chat_id="$CHAT_ID" \
