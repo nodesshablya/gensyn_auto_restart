@@ -26,7 +26,11 @@ PROJECT_DIR="\$HOME/rl-swarm"
 SERVER_IP=\$(curl -4 -s ifconfig.me)
 
 check_for_error() {
-  grep -q "Resource temporarily unavailable" "\$LOG_FILE"
+  grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \\(most recent call last\\)|Exception|P2PDaemonError" "\$LOG_FILE"
+}
+
+check_process() {
+  ! screen -list | grep -q "gensynnode"
 }
 
 send_telegram_alert() {
@@ -37,12 +41,11 @@ cat >> "$WATCHDOG_SCRIPT" <<EOF
   BOT_TOKEN="$BOT_TOKEN"
   CHAT_ID="$CHAT_ID"
   MESSAGE=\$(cat <<MSG
-⚠️ *RL Swarm was restarted due to an error (\`Resource temporarily unavailable\`)*
-🌐 Server IPv4: \`\$SERVER_IP\`
+⚠️ *RL Swarm был перезапущен*
+🌐 IP: \`\$SERVER_IP\`
 🕒 \$(date '+%Y-%m-%d %H:%M:%S')
 MSG
 )
-
   curl -s -X POST "https://api.telegram.org/bot\$BOT_TOKEN/sendMessage" \\
     -d chat_id="\$CHAT_ID" \\
     -d text="\$MESSAGE" \\
@@ -71,13 +74,12 @@ restart_process() {
     sleep 1
   done
 
-  echo "[INFO] Entered and pressed N"
+  echo "[INFO] Sent 'N' to process"
   send_telegram_alert
 }
 
-# Infinite loop with 10s interval
 while true; do
-  if check_for_error; then
+  if check_for_error || check_process; then
     restart_process
   fi
   sleep 10
