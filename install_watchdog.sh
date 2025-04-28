@@ -23,7 +23,6 @@ cat > "$WATCHDOG_SCRIPT" <<EOF
 
 LOG_FILE="\$HOME/rl-swarm/gensynnode.log"
 PROJECT_DIR="\$HOME/rl-swarm"
-SERVER_IP=\$(curl -4 -s ifconfig.me)
 
 check_for_error() {
   grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \\(most recent call last\\)|Exception|P2PDaemonError" "\$LOG_FILE"
@@ -34,7 +33,7 @@ check_process() {
 }
 
 send_telegram_alert() {
-  SERVER_IP=$(curl -4 -s ifconfig.me)
+  SERVER_IP=\$(curl -4 -s ifconfig.me)
 EOF
 
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
@@ -117,3 +116,13 @@ sudo systemctl restart gensynnode.service
 
 echo "✅ Installation complete!"
 echo "👉 To check status: sudo systemctl status gensynnode.service"
+
+# ✅ Send Telegram notification about successful install
+if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
+  SERVER_IP=$(curl -4 -s ifconfig.me)
+  MESSAGE="✅ Скрипт RL Swarm установлен\n🌐 IP: \`$SERVER_IP\`\n🕒 $(date '+%Y-%m-%d %H:%M:%S')"
+  curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+    -d chat_id="$CHAT_ID" \
+    -d text="$MESSAGE" \
+    -d parse_mode="Markdown"
+fi
