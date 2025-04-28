@@ -34,6 +34,7 @@ check_process() {
 }
 
 send_telegram_alert() {
+  SERVER_IP=$(curl -4 -s ifconfig.me)
 EOF
 
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
