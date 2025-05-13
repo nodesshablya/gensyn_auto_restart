@@ -17,7 +17,7 @@ cat > "$WATCHDOG_SCRIPT" <<'EOF'
 LOG_FILE="$HOME/rl-swarm/gensynnode.log"
 PROJECT_DIR="$HOME/rl-swarm"
 check_for_error() {
-  grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \(most recent call last\)|Exception|P2PDaemonError" "$LOG_FILE"
+  grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \(most recent call last\)|Exception|P2PDaemonError|UnboundLocalError: cannot access local variable 'current_batch' where it is not associated with a value" "$LOG_FILE"
 }
 check_process() {
   ! screen -list | grep -q "gensynnode"
@@ -50,10 +50,27 @@ restart_process() {
   source .venv/bin/activate
   screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
   sleep 5
+  
+  # Send 'A' for swarm selection
+  while ! screen -S gensynnode -X stuff "A$(echo -ne '\r')"; do
+    sleep 1
+  done
+  echo "[INFO] Sent 'A' for swarm selection"
+  sleep 2
+
+  # Send '0.5' for parameter selection
+  while ! screen -S gensynnode -X stuff "0.5$(echo -ne '\r')"; do
+    sleep 1
+  done
+  echo "[INFO] Sent '0.5' for parameter selection"
+  sleep 2
+
+  # Send 'N' for Hugging Face Hub question
   while ! screen -S gensynnode -X stuff "N$(echo -ne '\r')"; do
     sleep 1
   done
-  echo "[INFO] Sent 'N' to process"
+  echo "[INFO] Sent 'N' for Hugging Face Hub question"
+  
   send_telegram_alert
 }
 while true; do
