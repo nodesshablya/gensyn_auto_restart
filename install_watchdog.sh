@@ -19,8 +19,9 @@ cat > "$WATCHDOG_SCRIPT" <<'EOF'
 LOG_FILE="$HOME/rl-swarm/gensynnode.log"
 PROJECT_DIR="$HOME/rl-swarm"
 
+# Здесь добавляем новые паттерны для поиска ошибок
 check_for_error() {
-  grep -qE "Resource temporarily unavailable|Daemon failed to start in|Traceback \(most recent call last\)|Exception|P2PDaemonError|UnboundLocalError: cannot access local variable 'current_batch'" "$LOG_FILE"
+  grep -qE "Resource temporarily unavailable|Connection refused|BlockingIOError: \[Errno 11\]|EOFError: Ran out of input|Traceback \(most recent call last\)" "$LOG_FILE"
 }
 
 check_process() {
