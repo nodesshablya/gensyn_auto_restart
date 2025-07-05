@@ -18,45 +18,6 @@ cat > "$WATCHDOG_SCRIPT" <<'EOF'
 #!/bin/bash
 LOG_FILE="$HOME/rl-swarm/gensynnode.log"
 PROJECT_DIR="$HOME/rl-swarm"
-SOURCE_DIR="/root/temp"
-DEST_DIR="/root/rl-swarm/modal-login/temp-data"
-
-# Функция для копирования файлов перед рестартом
-copy_user_files() {
-  echo "[INFO] Copying user files before restart..."
-  
-  # Проверяем существование исходной папки
-  if [ ! -d "$SOURCE_DIR" ]; then
-    echo "[WARNING] Source directory $SOURCE_DIR does not exist"
-    return 1
-  fi
-  
-  # Создаем папку назначения если её нет
-  mkdir -p "$DEST_DIR"
-  
-  # Удаляем существующие файлы в папке назначения
-  if [ -d "$DEST_DIR" ]; then
-    echo "[INFO] Cleaning destination directory..."
-    rm -f "$DEST_DIR"/*
-  fi
-  
-  # Копируем необходимые файлы
-  if [ -f "$SOURCE_DIR/userData.json" ]; then
-    cp "$SOURCE_DIR/userData.json" "$DEST_DIR/"
-    echo "[INFO] Copied userData.json"
-  else
-    echo "[WARNING] userData.json not found in $SOURCE_DIR"
-  fi
-  
-  if [ -f "$SOURCE_DIR/userApiKey.json" ]; then
-    cp "$SOURCE_DIR/userApiKey.json" "$DEST_DIR/"
-    echo "[INFO] Copied userApiKey.json"
-  else
-    echo "[WARNING] userApiKey.json not found in $SOURCE_DIR"
-  fi
-  
-  echo "[INFO] File copying completed"
-}
 
 # Здесь добавляем новые паттерны для поиска ошибок
 check_for_error() {
@@ -64,7 +25,7 @@ check_for_error() {
 }
 
 check_process() {
-  ! screen -list 2>/dev/null | grep -q "gensynnode"
+  ! screen -list | grep -q "gensynnode"
 }
 
 send_telegram_alert() {
@@ -77,7 +38,7 @@ cat >> "$WATCHDOG_SCRIPT" <<EOF
   CHAT_ID="$CHAT_ID"
   curl -s -X POST "https://api.telegram.org/bot\$BOT_TOKEN/sendMessage" \\
     -d chat_id="\$CHAT_ID" \\
-    -d text="⚠️ *RL Swarm был перезапущен*
+    -d text="⚠️ RL Swarm был перезапущен
 🌐 IP: \$SERVER_IP
 🕒 \$(date '+%Y-%m-%d %H:%M:%S')" \\
     -d parse_mode="Markdown"
@@ -93,73 +54,57 @@ cat >> "$WATCHDOG_SCRIPT" <<'EOF'
 
 restart_process() {
   echo "[INFO] Restarting gensynnode..."
-  
-  # Копируем файлы перед рестартом
-  copy_user_files
-  
-  # Останавливаем процесс (если он существует)
-  if screen -list | grep -q "gensynnode"; then
-    echo "[INFO] Stopping existing gensynnode session..."
-    screen -XS gensynnode quit
-    sleep 2
+
+  # Останавливаем процесс
+  screen -XS gensynnode quit
+
+  # Копирование файлов temp перед запуском
+  TEMP_SOURCE="/root/temp"
+  TEMP_DEST="/root/rl-swarm/modal-login/temp-data"
+
+  echo "[INFO] Preparing temp data files..."
+  if [ -d "$TEMP_DEST" ]; then
+    rm -f "$TEMP_DEST"/*
+  else
+    mkdir -p "$TEMP_DEST"
   fi
-  
-  # Переходим в рабочую директорию
+
+  if [ -f "$TEMP_SOURCE/userData.json" ]; then
+    cp "$TEMP_SOURCE/userData.json" "$TEMP_DEST/"
+  else
+    echo "[WARN] $TEMP_SOURCE/userData.json not found!"
+  fi
+
+  if [ -f "$TEMP_SOURCE/userApiKey.json" ]; then
+    cp "$TEMP_SOURCE/userApiKey.json" "$TEMP_DEST/"
+  else
+    echo "[WARN] $TEMP_SOURCE/userApiKey.json not found!"
+  fi
+
+  # Перезапуск процесса
   cd "$PROJECT_DIR" || exit
   source .venv/bin/activate
-  
-  # Запускаем новый процесс
-  echo "[INFO] Starting new gensynnode session..."
   screen -S gensynnode -d -m bash -c "trap '' INT; echo -e 'A\n0.5\nN\n' | bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
-  
-  # Ждем немного, чтобы процесс успел запуститься
-  sleep 10
-  
-  # Проверяем, что процесс действительно запустился
-  if screen -list | grep -q "gensynnode"; then
-    echo "[INFO] Process started successfully"
-    
-    # Пытаемся отправить команду 'N' в процесс (с лимитом попыток)
-    local attempts=0
-    local max_attempts=5
-    
-    while [ $attempts -lt $max_attempts ]; do
-      if screen -S gensynnode -X stuff "N$(echo -ne '\r')"; then
-        echo "[INFO] Sent 'N' to process (attempt $((attempts + 1)))"
-        break
-      else
-        echo "[WARNING] Failed to send 'N' to process (attempt $((attempts + 1)))"
-        attempts=$((attempts + 1))
-        sleep 2
-      fi
-    done
-    
-    if [ $attempts -eq $max_attempts ]; then
-      echo "[ERROR] Failed to send 'N' to process after $max_attempts attempts"
-    fi
-  else
-    echo "[ERROR] Failed to start gensynnode session"
-  fi
-  
-  # Отправляем уведомление в Telegram
+  sleep 5
+  while ! screen -S gensynnode -X stuff "N$(echo -ne '\r')"; do
+    sleep 1
+  done
+
+  echo "[INFO] Sent 'N' to process"
   send_telegram_alert
 }
 
-# Основной цикл мониторинга
 while true; do
   if check_for_error || check_process; then
-    echo "[INFO] Error detected or process not running, initiating restart..."
     restart_process
-    # Даем время процессу полностью запуститься перед следующей проверкой
-    sleep 60
   fi
   sleep 10
 done
 EOF
 
 chmod +x "$WATCHDOG_SCRIPT"
-echo "✅ watchdog.sh created at $WATCHDOG_SCRIPT"
 
+echo "✅ watchdog.sh created at $WATCHDOG_SCRIPT"
 echo "📄 Creating systemd service..."
 sudo tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
@@ -186,7 +131,6 @@ sudo systemctl restart gensynnode.service
 echo "✅ Installation complete!"
 echo "👉 To check status: sudo systemctl status gensynnode.service"
 
-# Отправляем уведомление об установке в Telegram
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
   SERVER_IP=$(curl -s https://api.ipify.org)
   curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
