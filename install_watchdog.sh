@@ -18,6 +18,45 @@ cat > "$WATCHDOG_SCRIPT" <<'EOF'
 #!/bin/bash
 LOG_FILE="$HOME/rl-swarm/gensynnode.log"
 PROJECT_DIR="$HOME/rl-swarm"
+SOURCE_DIR="/root/temp"
+DEST_DIR="/root/rl-swarm/modal-login/temp-data"
+
+# Функция для копирования файлов перед рестартом
+copy_user_files() {
+  echo "[INFO] Copying user files before restart..."
+  
+  # Проверяем существование исходной папки
+  if [ ! -d "$SOURCE_DIR" ]; then
+    echo "[WARNING] Source directory $SOURCE_DIR does not exist"
+    return 1
+  fi
+  
+  # Создаем папку назначения если её нет
+  mkdir -p "$DEST_DIR"
+  
+  # Удаляем существующие файлы в папке назначения
+  if [ -d "$DEST_DIR" ]; then
+    echo "[INFO] Cleaning destination directory..."
+    rm -f "$DEST_DIR"/*
+  fi
+  
+  # Копируем необходимые файлы
+  if [ -f "$SOURCE_DIR/userData.json" ]; then
+    cp "$SOURCE_DIR/userData.json" "$DEST_DIR/"
+    echo "[INFO] Copied userData.json"
+  else
+    echo "[WARNING] userData.json not found in $SOURCE_DIR"
+  fi
+  
+  if [ -f "$SOURCE_DIR/userApiKey.json" ]; then
+    cp "$SOURCE_DIR/userApiKey.json" "$DEST_DIR/"
+    echo "[INFO] Copied userApiKey.json"
+  else
+    echo "[WARNING] userApiKey.json not found in $SOURCE_DIR"
+  fi
+  
+  echo "[INFO] File copying completed"
+}
 
 # Здесь добавляем новые паттерны для поиска ошибок
 check_for_error() {
@@ -54,18 +93,32 @@ cat >> "$WATCHDOG_SCRIPT" <<'EOF'
 
 restart_process() {
   echo "[INFO] Restarting gensynnode..."
+  
+  # Копируем файлы перед рестартом
+  copy_user_files
+  
+  # Останавливаем процесс
   screen -XS gensynnode quit
+  
+  # Переходим в рабочую директорию
   cd "$PROJECT_DIR" || exit
   source .venv/bin/activate
+  
+  # Запускаем новый процесс
   screen -S gensynnode -d -m bash -c "trap '' INT; echo -e 'A\n0.5\nN\n' | bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
   sleep 5
+  
+  # Отправляем команду 'N' в процесс
   while ! screen -S gensynnode -X stuff "N$(echo -ne '\r')"; do
     sleep 1
   done
   echo "[INFO] Sent 'N' to process"
+  
+  # Отправляем уведомление в Telegram
   send_telegram_alert
 }
 
+# Основной цикл мониторинга
 while true; do
   if check_for_error || check_process; then
     restart_process
@@ -103,6 +156,7 @@ sudo systemctl restart gensynnode.service
 echo "✅ Installation complete!"
 echo "👉 To check status: sudo systemctl status gensynnode.service"
 
+# Отправляем уведомление об установке в Telegram
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
   SERVER_IP=$(curl -s https://api.ipify.org)
   curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
