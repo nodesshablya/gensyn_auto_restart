@@ -97,22 +97,49 @@ restart_process() {
   # Копируем файлы перед рестартом
   copy_user_files
   
-  # Останавливаем процесс
-  screen -XS gensynnode quit
+  # Останавливаем процесс (если он существует)
+  if screen -list | grep -q "gensynnode"; then
+    echo "[INFO] Stopping existing gensynnode session..."
+    screen -XS gensynnode quit
+    sleep 2
+  fi
   
   # Переходим в рабочую директорию
   cd "$PROJECT_DIR" || exit
   source .venv/bin/activate
   
   # Запускаем новый процесс
+  echo "[INFO] Starting new gensynnode session..."
   screen -S gensynnode -d -m bash -c "trap '' INT; echo -e 'A\n0.5\nN\n' | bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
-  sleep 5
   
-  # Отправляем команду 'N' в процесс
-  while ! screen -S gensynnode -X stuff "N$(echo -ne '\r')"; do
-    sleep 1
-  done
-  echo "[INFO] Sent 'N' to process"
+  # Ждем немного, чтобы процесс успел запуститься
+  sleep 10
+  
+  # Проверяем, что процесс действительно запустился
+  if screen -list | grep -q "gensynnode"; then
+    echo "[INFO] Process started successfully"
+    
+    # Пытаемся отправить команду 'N' в процесс (с лимитом попыток)
+    local attempts=0
+    local max_attempts=5
+    
+    while [ $attempts -lt $max_attempts ]; do
+      if screen -S gensynnode -X stuff "N$(echo -ne '\r')"; then
+        echo "[INFO] Sent 'N' to process (attempt $((attempts + 1)))"
+        break
+      else
+        echo "[WARNING] Failed to send 'N' to process (attempt $((attempts + 1)))"
+        attempts=$((attempts + 1))
+        sleep 2
+      fi
+    done
+    
+    if [ $attempts -eq $max_attempts ]; then
+      echo "[ERROR] Failed to send 'N' to process after $max_attempts attempts"
+    fi
+  else
+    echo "[ERROR] Failed to start gensynnode session"
+  fi
   
   # Отправляем уведомление в Telegram
   send_telegram_alert
@@ -121,7 +148,10 @@ restart_process() {
 # Основной цикл мониторинга
 while true; do
   if check_for_error || check_process; then
+    echo "[INFO] Error detected or process not running, initiating restart..."
     restart_process
+    # Даем время процессу полностью запуститься перед следующей проверкой
+    sleep 30
   fi
   sleep 10
 done
