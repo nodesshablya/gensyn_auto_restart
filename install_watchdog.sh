@@ -20,7 +20,7 @@ PROJECT_DIR="$HOME/rl-swarm"
 check_for_error() {
   grep -qE "Resource temporarily unavailable|Connection refused|BlockingIOError: \[Errno 11\]|EOFError: Ran out of input|Traceback \(most recent call last\)" "$LOG_FILE"
 }
-check_process() {
+check_process_missing() {
   ! screen -list | grep -q "gensynnode"
 }
 send_telegram_alert() {
@@ -44,10 +44,9 @@ EOF
 fi
 cat >> "$WATCHDOG_SCRIPT" <<'EOF'
 }
-restart_process() {
-  echo "[INFO] Restarting gensynnode..."
-  # Останавливаем процесс
-  screen -XS gensynnode quit
+start_process() {
+  echo "[INFO] Starting gensynnode..."
+  
   # Копирование файлов temp перед запуском
   TEMP_SOURCE="/root/temp"
   TEMP_DEST="/root/rl-swarm/modal-login/temp-data"
@@ -67,7 +66,8 @@ restart_process() {
   else
     echo "[WARN] $TEMP_SOURCE/userApiKey.json not found!"
   fi
-  # Перезапуск процесса с правильной последовательностью ответов
+  
+  # Запуск процесса с правильной последовательностью ответов
   cd "$PROJECT_DIR" || exit
   source .venv/bin/activate
   # Создаем временный файл с ответами только для нужных вопросов
@@ -77,12 +77,27 @@ restart_process() {
   screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh < /tmp/rl_answers.txt 2>&1 | tee $LOG_FILE"
   # Удаляем временный файл
   rm -f /tmp/rl_answers.txt
-  echo "[INFO] Process restarted with automated responses"
+  echo "[INFO] Process started with automated responses"
+  
+  # Ждем 30 секунд для инициализации процесса
+  sleep 30
+}
+
+restart_process() {
+  echo "[INFO] Restarting gensynnode..."
+  # Останавливаем процесс
+  screen -XS gensynnode quit 2>/dev/null || true
+  sleep 2
+  
+  # Запускаем процесс
+  start_process
   send_telegram_alert
 }
 while true; do
-  if check_for_error || check_process; then
+  if check_for_error; then
     restart_process
+  elif check_process_missing; then
+    start_process
   fi
   sleep 10
 done
