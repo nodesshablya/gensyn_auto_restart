@@ -64,7 +64,7 @@ check_for_error() {
 }
 
 check_process() {
-  ! screen -list | grep -q "gensynnode"
+  ! screen -list 2>/dev/null | grep -q "gensynnode"
 }
 
 send_telegram_alert() {
@@ -151,7 +151,7 @@ while true; do
     echo "[INFO] Error detected or process not running, initiating restart..."
     restart_process
     # Даем время процессу полностью запуститься перед следующей проверкой
-    sleep 30
+    sleep 60
   fi
   sleep 10
 done
