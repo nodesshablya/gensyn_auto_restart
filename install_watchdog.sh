@@ -91,14 +91,25 @@ restart_process() {
     # Запускаем процесс в screen
     screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
     
-    sleep 3
+    echo "[INFO] Waiting for installation to complete..."
     
-    # Ждем появления вопроса о Hugging Face Hub и отвечаем 'N'
+    # Ждем завершения установки библиотек (ищем "Done!")
+    for i in {1..300}; do  # Увеличиваем до 5 минут
+        if tail -n 20 "$LOG_FILE" 2>/dev/null | grep -q "Done!"; then
+            echo "[INFO] Installation completed, found 'Done!' message"
+            break
+        fi
+        sleep 1
+    done
+    
+    # Дополнительно ждем появления вопроса о Hugging Face Hub
     echo "[INFO] Waiting for Hugging Face Hub question..."
-    for i in {1..30}; do
-        if tail -n 20 "$LOG_FILE" | grep -q "Would you like to push models you train in the RL swarm to the Hugging Face Hub"; then
-            echo "[INFO] Found Hugging Face Hub question, sending 'N'"
+    for i in {1..60}; do  # Ждем до 1 минуты
+        LOG_TAIL=$(tail -n 10 "$LOG_FILE" 2>/dev/null || echo "")
+        if echo "$LOG_TAIL" | grep -q "\[y/N\]"; then
+            echo "[INFO] Found [y/N] prompt, sending 'N'"
             screen -S gensynnode -X stuff "N$(echo -ne '\r')"
+            sleep 3
             break
         fi
         sleep 1
@@ -106,10 +117,12 @@ restart_process() {
     
     # Ждем появления вопроса о модели и нажимаем Enter
     echo "[INFO] Waiting for model name question..."
-    for i in {1..30}; do
-        if tail -n 20 "$LOG_FILE" | grep -q "Enter the name of the model you want to use in huggingface repo/name format"; then
+    for i in {1..60}; do  # Ждем до 1 минуты
+        LOG_TAIL=$(tail -n 10 "$LOG_FILE" 2>/dev/null || echo "")
+        if echo "$LOG_TAIL" | grep -q "Enter the name of the model" || echo "$LOG_TAIL" | grep -q "press \[Enter\]"; then
             echo "[INFO] Found model name question, pressing Enter"
             screen -S gensynnode -X stuff "$(echo -ne '\r')"
+            sleep 3
             break
         fi
         sleep 1
