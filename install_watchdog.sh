@@ -2,7 +2,7 @@
 
 echo "🛠 Installing watchdog for RL Swarm..."
 
-INSTALL_DIR="$HOME/rl-swarm"
+INSTALL_DIR="/root/rl-swarm"
 WATCHDOG_SCRIPT="$INSTALL_DIR/watchdog.sh"
 SERVICE_FILE="/etc/systemd/system/gensynnode.service"
 
@@ -21,8 +21,8 @@ echo "📄 Creating watchdog.sh..."
 cat > "$WATCHDOG_SCRIPT" <<'EOF'
 #!/bin/bash
 
-LOG_FILE="$HOME/rl-swarm/gensynnode.log"
-PROJECT_DIR="$HOME/rl-swarm"
+LOG_FILE="/root/rl-swarm/gensynnode.log"
+PROJECT_DIR="/root/rl-swarm"
 
 # Здесь добавляем новые паттерны для поиска ошибок
 check_for_error() {
@@ -61,6 +61,10 @@ restart_process() {
     # Останавливаем процесс
     screen -XS gensynnode quit
     
+    # Создаем лог-файл если его нет
+    mkdir -p "$(dirname "$LOG_FILE")"
+    touch "$LOG_FILE"
+    
     # Копирование файлов temp перед запуском
     TEMP_SOURCE="/root/temp"
     TEMP_DEST="/root/rl-swarm/modal-login/temp-data"
@@ -88,8 +92,12 @@ restart_process() {
     cd "$PROJECT_DIR" || exit
     source .venv/bin/activate
     
+    echo "[INFO] Starting process in screen session..."
     # Запускаем процесс в screen
-    screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee $LOG_FILE"
+    screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee /root/rl-swarm/gensynnode.log"
+    
+    echo "[INFO] Process started, log file: $LOG_FILE"
+    sleep 5
     
     echo "[INFO] Waiting for installation to complete..."
     
@@ -190,7 +198,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER
+User=root
 WorkingDirectory=$INSTALL_DIR
 ExecStart=/bin/bash $WATCHDOG_SCRIPT
 Restart=on-failure
@@ -207,6 +215,8 @@ sudo systemctl restart gensynnode.service
 
 echo "✅ Installation complete!"
 echo "👉 To check status: sudo systemctl status gensynnode.service"
+echo "👉 To check watchdog logs: sudo journalctl -u gensynnode.service -f"
+echo "👉 To check RL Swarm logs: tail -f /root/rl-swarm/gensynnode.log"
 
 if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
     SERVER_IP=$(curl -s https://api.ipify.org)
