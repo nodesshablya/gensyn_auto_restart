@@ -110,6 +110,12 @@ restart_process() {
             echo "[INFO] Found [y/N] prompt, sending 'N'"
             screen -S gensynnode -X stuff "N$(echo -ne '\r')"
             sleep 3
+            
+            # Сразу после отправки N ждем 15 секунд и отправляем Enter
+            echo "[INFO] Waiting 15 seconds then sending Enter..."
+            sleep 15
+            screen -S gensynnode -X stuff "$(echo -ne '\r')"
+            echo "[INFO] Sent Enter for model question"
             break
         fi
         sleep 1
@@ -117,10 +123,22 @@ restart_process() {
     
     # Ждем появления вопроса о модели и нажимаем Enter
     echo "[INFO] Waiting for model name question..."
-    for i in {1..60}; do  # Ждем до 1 минуты
-        LOG_TAIL=$(tail -n 10 "$LOG_FILE" 2>/dev/null || echo "")
-        if echo "$LOG_TAIL" | grep -q "Enter the name of the model" || echo "$LOG_TAIL" | grep -q "press \[Enter\]"; then
+    for i in {1..120}; do  # Увеличиваем до 2 минут
+        LOG_TAIL=$(tail -n 15 "$LOG_FILE" 2>/dev/null || echo "")
+        echo "[DEBUG] Checking for model question (attempt $i/120)"
+        
+        if echo "$LOG_TAIL" | grep -q "Enter the name of the model you want to use in huggingface repo/name format"; then
             echo "[INFO] Found model name question, pressing Enter"
+            screen -S gensynnode -X stuff "$(echo -ne '\r')"
+            sleep 3
+            break
+        elif echo "$LOG_TAIL" | grep -q "press \[Enter\] to use the default model"; then
+            echo "[INFO] Found Enter prompt for default model, pressing Enter"
+            screen -S gensynnode -X stuff "$(echo -ne '\r')"
+            sleep 3
+            break
+        elif echo "$LOG_TAIL" | grep -q "or press \[Enter\]"; then
+            echo "[INFO] Found general Enter prompt, pressing Enter"
             screen -S gensynnode -X stuff "$(echo -ne '\r')"
             sleep 3
             break
