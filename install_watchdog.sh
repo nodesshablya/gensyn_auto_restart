@@ -24,16 +24,56 @@ cat > "$WATCHDOG_SCRIPT" <<'EOF'
 LOG_FILE="/root/rl-swarm/gensynnode.log"
 PROJECT_DIR="/root/rl-swarm"
 
-# Здесь добавляем новые паттерны для поиска ошибок
+# Сколько минут ждать нового раунда до перезапуска (можно переопределить экспортом STALE_MINUTES=..)
+STALE_MINUTES="${STALE_MINUTES:-30}"
+STALE_SECONDS=$((STALE_MINUTES * 60))
+
+# --- Детект ошибок по логам ---
 check_for_error() {
     grep -qE "Resource temporarily unavailable|Connection refused|BlockingIOError: \[Errno 11\]|EOFError: Ran out of input|Traceback \(most recent call last\)" "$LOG_FILE"
 }
 
+# --- Процесс не запущен ---
 check_process() {
     ! screen -list | grep -q "gensynnode"
 }
 
+# --- Нет новых round слишком долго ---
+check_round_stall() {
+    # Находим последнюю строку "Joining round:"
+    local last_line ts last_epoch now_epoch diff
+    last_line=$(grep -F "Joining round:" "$LOG_FILE" | tail -n 1)
+
+    # Если ни разу не встречалось — считаем как застой
+    if [[ -z "$last_line" ]]; then
+        return 0
+    fi
+
+    # Вырезаем timestamp формата [YYYY-MM-DD HH:MM:SS,ms] -> "YYYY-MM-DD HH:MM:SS"
+    ts=$(echo "$last_line" | sed -n 's/^\[\([0-9-]\{10\} [0-9:]\{8\}\),[0-9]\{1,6\}\].*/\1/p')
+    if [[ -z "$ts" ]]; then
+        # Не смогли распарсить — перестрахуемся перезапуском
+        return 0
+    fi
+
+    last_epoch=$(date -d "$ts" +%s 2>/dev/null || echo 0)
+    now_epoch=$(date +%s)
+
+    # Если дата не распарсилась
+    if [[ "$last_epoch" -le 0 ]]; then
+        return 0
+    fi
+
+    diff=$(( now_epoch - last_epoch ))
+    if [[ "$diff" -ge "$STALE_SECONDS" ]]; then
+        return 0   # Застой (true)
+    fi
+
+    return 1       # Всё ок (false)
+}
+
 send_telegram_alert() {
+    local reason="$1"
     SERVER_IP=$(curl -s https://api.ipify.org)
 EOF
 
@@ -43,12 +83,12 @@ if [[ -n "$BOT_TOKEN" && -n "$CHAT_ID" ]]; then
     CHAT_ID="$CHAT_ID"
     curl -s -X POST "https://api.telegram.org/bot\$BOT_TOKEN/sendMessage" \\
         -d chat_id="\$CHAT_ID" \\
-        -d text="⚠️ RL Swarm был перезапущен 🌐 IP: \$SERVER_IP 🕒 \$(date '+%Y-%m-%d %H:%M:%S')" \\
+        -d text="⚠️ RL Swarm был перезапущен (причина: \$reason) 🌐 IP: \$SERVER_IP 🕒 \$(date '+%Y-%m-%d %H:%M:%S')" \\
         -d parse_mode="Markdown"
 EOF
 else
     cat >> "$WATCHDOG_SCRIPT" <<'EOF'
-    echo "[INFO] Telegram notifications are disabled"
+    echo "[INFO] Telegram notifications are disabled (reason: '"$reason"')"
 EOF
 fi
 
@@ -56,7 +96,8 @@ cat >> "$WATCHDOG_SCRIPT" <<'EOF'
 }
 
 restart_process() {
-    echo "[INFO] Restarting gensynnode..."
+    local reason="${1:-unknown}"
+    echo "[INFO] Restarting gensynnode... reason: $reason"
     
     # Останавливаем процесс
     screen -XS gensynnode quit
@@ -93,16 +134,13 @@ restart_process() {
     source .venv/bin/activate
     
     echo "[INFO] Starting process in screen session..."
-    # Запускаем процесс в screen
     screen -S gensynnode -d -m bash -c "trap '' INT; bash run_rl_swarm.sh 2>&1 | tee /root/rl-swarm/gensynnode.log"
     
     echo "[INFO] Process started, log file: $LOG_FILE"
     sleep 5
     
     echo "[INFO] Waiting for installation to complete..."
-    
-    # Ждем завершения установки библиотек (ищем "Done!")
-    for i in {1..300}; do  # Увеличиваем до 5 минут
+    for i in {1..300}; do
         if tail -n 20 "$LOG_FILE" 2>/dev/null | grep -q "Done!"; then
             echo "[INFO] Installation completed, found 'Done!' message"
             break
@@ -110,9 +148,8 @@ restart_process() {
         sleep 1
     done
     
-    # Дополнительно ждем появления вопроса о Hugging Face Hub
     echo "[INFO] Waiting for Hugging Face Hub question..."
-    for i in {1..60}; do  # Ждем до 1 минуты
+    for i in {1..60}; do
         LOG_TAIL=$(tail -n 10 "$LOG_FILE" 2>/dev/null || echo "")
         if echo "$LOG_TAIL" | grep -q "\[y/N\]"; then
             echo "[INFO] Found [y/N] prompt, sending 'N'"
@@ -123,17 +160,13 @@ restart_process() {
         sleep 1
     done
     
-    # Ждем появления вопроса о модели и нажимаем Enter
     echo "[INFO] Waiting for model name question..."
     FOUND_MODEL_QUESTION=false
-    
-    for i in {1..120}; do  # Увеличиваем до 2 минут
+    for i in {1..120}; do
         LOG_TAIL=$(tail -n 20 "$LOG_FILE" 2>/dev/null || echo "")
         echo "[DEBUG] Attempt $i/120, checking log..."
-        echo "[DEBUG] Last 3 lines of log:"
         tail -n 3 "$LOG_FILE" 2>/dev/null || echo "No log available"
         
-        # Проверяем различные варианты текста
         if echo "$LOG_TAIL" | grep -qi "enter the name of the model"; then
             echo "[INFO] Found 'enter the name of the model' - pressing Enter"
             screen -S gensynnode -X stuff "$(echo -ne '\r')"
@@ -161,7 +194,6 @@ restart_process() {
             break
         fi
         
-        # Каждые 30 секунд принудительно отправляем Enter
         if [ $((i % 30)) -eq 0 ]; then
             echo "[INFO] Timeout approach - sending Enter anyway (attempt $((i/30)))"
             screen -S gensynnode -X stuff "$(echo -ne '\r')"
@@ -175,12 +207,16 @@ restart_process() {
         screen -S gensynnode -X stuff "$(echo -ne '\r')"
     fi
     
-    send_telegram_alert
+    send_telegram_alert "$reason"
 }
 
 while true; do
-    if check_for_error || check_process; then
-        restart_process
+    if check_for_error; then
+        restart_process "error in logs"
+    elif check_process; then
+        restart_process "process not running"
+    elif check_round_stall; then
+        restart_process "no new Joining round ≥ ${STALE_MINUTES}m"
     fi
     sleep 10
 done
@@ -203,9 +239,7 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=/bin/bash $WATCHDOG_SCRIPT
 Restart=on-failure
 RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
+Environment=STALE_MINUTES=30
 EOF
 
 echo "🔁 Reloading and starting systemd service..."
