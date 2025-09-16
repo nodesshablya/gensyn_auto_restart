@@ -273,6 +273,38 @@ restart_process() {
     screen -S gensynnode -X stuff "$(echo -ne '\r')"
   fi
 
+  echo "[INFO] Waiting for AI Prediction Market question..."
+  FOUND_AI_MARKET_QUESTION=false
+  for i in {1..60}; do
+    LOG_TAIL=$(tail -n 10 "$LOG_FILE" 2>/dev/null || echo "")
+    echo "[DEBUG] AI Market attempt $i/60, checking log..."
+    tail -n 3 "$LOG_FILE" 2>/dev/null || echo "No log available"
+
+    if echo "$LOG_TAIL" | grep -qi "AI Prediction Market" && echo "$LOG_TAIL" | grep -qi "\[Y/n\]"; then
+      echo "[INFO] Found 'AI Prediction Market [Y/n]' - sending 'Y'"
+      screen -S gensynnode -X stuff "Y$(echo -ne '\r')"
+      FOUND_AI_MARKET_QUESTION=true
+      break
+    elif echo "$LOG_TAIL" | grep -qi "participate.*AI.*Market"; then
+      echo "[INFO] Found AI Market participation question - sending 'Y'"
+      screen -S gensynnode -X stuff "Y$(echo -ne '\r')"
+      FOUND_AI_MARKET_QUESTION=true
+      break
+    elif echo "$LOG_TAIL" | grep -qi "prediction.*market"; then
+      echo "[INFO] Found prediction market question - sending 'Y'"
+      screen -S gensynnode -X stuff "Y$(echo -ne '\r')"
+      FOUND_AI_MARKET_QUESTION=true
+      break
+    fi
+
+    sleep 1
+  done
+
+  if [ "$FOUND_AI_MARKET_QUESTION" = false ]; then
+    echo "[WARN] AI Prediction Market question not found, sending 'Y' as fallback"
+    screen -S gensynnode -X stuff "Y$(echo -ne '\r')"
+  fi
+
   send_telegram_alert "$reason"
 }
 
